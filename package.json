@@ -1,0 +1,26 @@
+{
+  "name": "neos-monaco-note",
+  "description": "Neo's Monaco Note",
+  "private": true,
+  "scripts": {
+    "start": "live-server --host=0.0.0.0 --no-browser ./"
+  },
+  "author": "Neo <neos21@gmail.com> (https://neos21.net/)",
+  "license": "MIT",
+  "homepage": "https://github.com/Neos21/neos-monaco-note#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Neos21/neos-monaco-note.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Neos21/neos-monaco-note/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Neos21"
+  },
+  "devDependencies": {
+    "live-server": "1.2.2",
+    "monaco-editor": "0.33.0"
+  }
+}

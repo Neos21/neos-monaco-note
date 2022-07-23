@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Neo's Monaco Note</title>
+    <link rel="icon" href="/favicon.ico">
+    <style>
+
+@font-face {
+  font-family: "Noto Sans Mono CJK JP";
+  src: local("NotoSansMonoCJKjp-Regular"),
+       local("Noto Sans Mono CJK JP Regular"),
+       local("Noto Sans Mono CJK JP"),
+       url("https://cdn.jsdelivr.net/npm/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.woff2")              format("woff2"),
+       url("https://unpkg.com/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.woff2")                         format("woff2"),
+       url("https://cdn.jsdelivr.net/npm/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.woff")               format("woff"),
+       url("https://unpkg.com/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.woff")                          format("woff"),
+       url("https://cdn.jsdelivr.net/npm/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.otf")                format("opentype"),
+       url("https://unpkg.com/@neos21/japanese-monospaced-fonts@1.0.2/NotoSansMonoCJKjp-Regular.otf")                           format("opentype"),
+       url("https://cdn.jsdelivr.net/npm/@japanese-monospaced-fonts/noto-sans-mono-cjk-jp@1.0.1/NotoSansMonoCJKJP-Regular.otf") format("opentype"),
+       url("https://unpkg.com/@japanese-monospaced-fonts/noto-sans-mono-cjk-jp@1.0.1/NotoSansMonoCJKJP-Regular.otf")            format("opentype");
+  font-display: swap;
+}
+
+:root {
+  --colour-background: #1e1e1e;  /* Match Monokai Background */
+  --controls-height: 35px;
+  --controls-padding-vertical: .5rem;
+}
+
+*, ::before, ::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  font-family: "Noto Sans Mono CJK JP", MeiryoKe_Gothic, "Courier New", monospace, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  text-decoration-skip-ink: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-text-decoration-skip: objects;
+  background: var(--colour-background);  /* Hide 1px Space */
+  cursor: default;
+  touch-action: manipulation;  /* For iOS Prevent Double Tap Zoom */
+}
+
+body {
+  height: 100%;
+  margin: 0;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--controls-padding-vertical);
+  height: var(--controls-height);
+  background: #282828;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;  /* Scrollable But Invisible (For Firefox) */
+}
+
+.controls::-webkit-scrollbar {  /* Scrollable But Invisible (For Chrome) */
+  height: 0;
+}
+
+.controls > .commands {
+  display: flex;
+  column-gap: var(--controls-padding-vertical);
+}
+
+#editing-marker {
+  display: flex;
+  align-items: center;
+  padding-left: var(--controls-padding-vertical);
+  color: #fff;
+  user-select: none;
+  opacity: 0;
+}
+
+#editing-marker.editing {
+  opacity: 1;
+}
+
+.controls button,
+.controls input {
+  height: 100%;
+  outline: 0;
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: #fff;
+  padding: 0 var(--controls-padding-vertical);
+  font-size: 16px;  /* For iOS Prevent Zoom */
+  font-family: inherit;
+  background: #444;
+}
+
+.controls button {
+  cursor: pointer;
+}
+
+.controls button:hover,
+.controls button:focus {
+  background: #555;
+}
+
+.controls button:disabled {
+  color: #777;
+  background: var(--colour-background);
+  cursor: default;
+}
+
+.controls button:disabled:hover,
+.controls button:disabled:focus {
+  background: #111;
+}
+
+#credential {
+  width: 8rem;
+}
+
+#credential::placeholder {
+  color: #777;
+}
+
+#container {
+  height: calc(100vh - var(--controls-height));
+}
+
+    </style>
+  </head>
+  <body>
+
+<div class="controls">
+  <div class="commands">
+    <span id="editing-marker">●</span>
+    <button type="button" id="load" accesskey="l" disabled>Load</button>
+    <button type="button" id="save" accesskey="s" disabled>Save</button>
+    <button type="button" id="wrap" accesskey="w">Wrap (-)</button>
+  </div>
+  <div class="credential">
+    <input type="password" id="credential" value="" placeholder="Credential (p)" accesskey="p">
+  </div>
+</div>
+<div id="container"></div>
+
+<script src="./min/vs/loader.js"></script>
+<script>
+
+require.config({
+  paths: {
+    vs: './min/vs'
+  },
+  // https://qiita.com/lumis/items/311b8c39d61312957195
+  'vs/nls': {
+    availableLanguages: {
+      '*': 'ja'
+    }
+  }
+});
+
+require(['vs/editor/editor.main'], async () => {
+  // Create Editor
+  setupTheme();
+  let isWordWrap = false;
+  const editor = createEditor(isWordWrap);
+  
+  const editingMarker     = document.getElementById('editing-marker');
+  const loadButton        = document.getElementById('load');
+  const saveButton        = document.getElementById('save');
+  const credentialTextBox = document.getElementById('credential');
+  
+  // Init
+  const savedCredential = localStorage.getItem('credential');
+  let isFirstLoaded = false;
+  if(savedCredential == null || savedCredential === '') {
+    editor.setValue('First Time. Please Load First');
+    loadButton.disabled = false;
+    credentialTextBox.focus();
+    console.log('Init : First Time');
+  }
+  else {
+    try {
+      // Auto Load
+      const content = await loadContent(savedCredential);
+      editor.setValue(content);
+      isFirstLoaded = true;
+      
+      credentialTextBox.value = savedCredential;
+      console.log('Init : Auto Loaded');
+    }
+    catch(error) {
+      console.error('Init : Failed To Auto Load', error);
+      editor.setValue('Failed To Auto Load. Please Input Credential And Load First');
+      loadButton.disabled = false;
+      credentialTextBox.focus();
+      localStorage.removeItem('credential');
+      console.warn('Init : Failed To Auto Load');
+    }
+  }
+  
+  // Load Button
+  loadButton.addEventListener('click', async () => {
+    try {
+      loadButton.disabled = true;
+      
+      const credential = credentialTextBox.value;
+      if(credential.trim() === '') {
+        loadButton.disabled = false;
+        credentialTextBox.focus();
+        return alert('Please Input Credential');
+      }
+      
+      const content = await loadContent(credential);
+      editor.setValue(content);
+      isFirstLoaded = true;
+      
+      isEditted = false;
+      editingMarker.classList.remove('editing');
+      localStorage.setItem('credential', credential);
+      console.log('Load : Succeeded');
+    }
+    catch(error) {
+      console.error('Load : Failed To Load', error);
+      alert('Failed To Load. Please Input Credential And Load First');
+      loadButton.disabled = false;
+      credentialTextBox.focus();
+      console.warn('Load : Failed');
+    }
+  });
+  
+  // Editing Marker
+  let isEditted = false;
+  window.addEventListener('beforeunload', event => {  // For PC (iOS Is Not Working)
+    if(!isEditted) return;
+    event.returnValue = 'Do You Want To Leave This Page?';
+    return 'Do You Want To Leave This Page?';
+  });
+  editor.getModel().onDidChangeContent(_event => {
+    if(isEditted) return;
+    isEditted = true;
+    editingMarker.classList.add('editing');
+    if(isFirstLoaded) saveButton.disabled = false;
+  });
+  
+  // Save Button
+  saveButton.addEventListener('click', async () => {
+    try {
+      saveButton.disabled = true;
+      
+      const credential = credentialTextBox.value;
+      if(credential.trim() === '') {
+        saveButton.disabled = false;
+        credentialTextBox.focus();
+        return alert('Please Input Credential');
+      }
+      
+      const content = editor.getValue();
+      const _result = await saveContent(credential, content);
+      
+      isEditted = false;
+      editingMarker.classList.remove('editing');
+      localStorage.setItem('credential', credential);
+      console.log('Save : Succeeded');
+    }
+    catch(error) {
+      console.error('Save : Failed To Save', error);
+      alert('Failed To Save. Please Check Credential');
+      saveButton.disabled = false;
+      credentialTextBox.focus();
+      console.warn('Save : Failed');
+    }
+  });
+  // Ctrl + S : Save
+  editor.addAction({
+    id: 'neos-save-action',
+    label: 'Neo\'s Save Action',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+    run: () => {
+      if(saveButton.disabled) return console.log('Neo\'s Save Action : Save Button Is Disabled, Nothing To Do');
+      console.log('Neo\'s Save Action : Click Save Button');
+      saveButton.click();
+    }
+  });
+  
+  // Wrap Button
+  const wrapButton = document.getElementById('wrap');
+  const toggleWrapButtonLabel = () => wrapButton.innerText = `Wrap (${isWordWrap ? 'o' : 'x'})`;
+  toggleWrapButtonLabel();
+  wrapButton.addEventListener('click', () => {
+    isWordWrap = !isWordWrap;
+    editor.updateOptions({ wordWrap: isWordWrap });
+    toggleWrapButtonLabel();
+  });
+  // Alt + Z : Toggle Wrap
+  editor.addAction({
+    id: 'neos-wrap-action',
+    label: 'Neo\'s Wrap Action',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+    run: () => {
+      console.log('Neo\'s Wrap Action');
+      wrapButton.click();
+    }
+  });
+  
+  //console.log('Languages', monaco.languages.getLanguages());
+  //console.log('Themes', editor._themeService._knownThemes);
+  //monaco.editor.setModelLanguage(editor.getModel(), 'typescript');  //  https://stackoverflow.com/questions/56840298/how-to-change-display-language-on-monaco-editor
+});
+
+/** Setup Monokai Theme */
+function setupTheme() {
+  // https://microsoft.github.io/monaco-editor/playground.html#customizing-the-appearence-exposed-colors
+  // https://github.com/brijeshb42/monaco-themes/blob/master/themes/Monokai.json
+  monaco.editor.defineTheme('monokai', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: ''       , background: '272822' },
+      { token: 'comment', foreground: '75715e' },
+      { token: 'keyword', foreground: 'f92672' },
+      { token: 'string' , foreground: 'e6db74' },
+      { token: 'constant.character'                                , foreground: 'ae81ff' },
+      { token: 'constant.language'                                 , foreground: 'ae81ff' },
+      { token: 'constant.numeric'                                  , foreground: 'ae81ff' },
+      { token: 'constant.numeric.line-number.find-in-files - match', foreground: 'ae81ffa0' },
+      { token: 'constant.other'                                    , foreground: 'ae81ff' },
+      { token: 'entity.name.class'                 , foreground: 'a6e22e', fontStyle: 'underline' },
+      { token: 'entity.name.filename.find-in-files', foreground: 'e6db74' },
+      { token: 'entity.name.function'              , foreground: 'a6e22e' },
+      { token: 'entity.name.tag'                   , foreground: 'f92672' },
+      { token: 'entity.other.attribute-name'       , foreground: 'a6e22e' },
+      { token: 'entity.other.inherited-class'      , foreground: 'a6e22e', fontStyle: 'underline' },
+      { token: 'invalid'           , foreground: 'f8f8f0', background: 'f92672' },
+      { token: 'invalid.deprecated', foreground: 'f8f8f0', background: 'ae81ff' },
+      { token: 'markup.changed' , foreground: 'e6db74' },
+      { token: 'markup.deleted' , foreground: 'f92672' },
+      { token: 'markup.inserted', foreground: 'a6e22e' },
+      { token: 'meta.diff'                                               , foreground: '75715e' },
+      { token: 'meta.diff.header'                                        , foreground: '75715e' },
+      { token: 'meta.structure.dictionary.json string.quoted.double.json', foreground: 'cfcfc2' },
+      { token: 'storage'     , foreground: 'f92672' },
+      { token: 'storage.type', foreground: '66d9ef' },
+      { token: 'support.class'   , foreground: '66d9ef' },
+      { token: 'support.constant', foreground: '66d9ef' },
+      { token: 'support.function', foreground: '66d9ef' },
+      { token: 'support.type'    , foreground: '66d9ef' },
+      { token: 'variable.parameter', foreground: 'fd971f' },
+    ],
+    colors: {
+      'editor.background'                 : '#1e1e1e',
+      'editor.foreground'                 : '#f8f8f2',
+      'editor.lineHighlightBackground'    : '#303030',
+      'editor.selectionBackground'        : '#676b7180',
+      'editor.selectionHighlightBorder'   : '#575b6180',
+      'editorCursor.foreground'           : '#f8f8f0',
+      'editorIndentGuide.activeBackground': '#8d6385',
+      'editorIndentGuide.background'      : '#70705a',
+      'editorWhitespace.foreground'       : '#505037',
+    }
+  });
+  monaco.editor.setTheme('monokai');
+}
+
+/**
+ * Create Monaco Editor
+ * 
+ * @param {boolean} isWordWrap Is Word Wrap Setting
+ * @return {IStandaloneCodeEditor} Monaco Editor
+ */
+function createEditor(isWordWrap) {
+  return monaco.editor.create(document.getElementById('container'), {
+    // https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.IStandaloneEditorConstructionOptions.html
+    automaticLayout: true,
+    value: '',
+    fontFamily: '"Noto Sans Mono CJK JP", MeiryoKe_Gothic',
+    fontSize: 16,
+    language: 'markdown',
+    minimap: { enabled: false },
+    renderIndentGuides: true,
+    renderWhitespace: 'all',
+    scrollBeyondLastLine: false,
+    tabSize: 2,
+    theme: 'monokai',
+    trimAutoWhitespace: false,
+    wordWrap: isWordWrap,
+    wrappingIndent: 'same'
+  });
+}
+
+/**
+ * Call Load Content API
+ * 
+ * @param {string} credential Credential
+ * @return {Promise<string>} Content
+ * @throws Failed To Call API, Invalid Response
+ */
+async function loadContent(credential) {
+  const response = await fetch(`./nmn-load.js.cgi?credential=${credential}`);
+  return await parseResponse(response, 'Load Content');
+}
+
+/**
+ * Call Save Content API
+ * 
+ * @param {string} credential Credential
+ * @param {string} content Content
+ * @return {Promise<Object>} Succeeded Response Object
+ * @throws Failed To Call API, Invalid Response
+ */
+async function saveContent(credential, content) {
+  const response = await fetch(`./nmn-save.js.cgi`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential, content })
+  });
+  return await parseResponse(response, 'Save Content');
+}
+
+/**
+ * Parse Response
+ * 
+ * @param {Response} response Response
+ * @param {string} functionName Function Name
+ * @return {Promise<*>} Response Result Data
+ */
+async function parseResponse(response, functionName = 'Parse Response') {
+  if(!response.ok) {
+    console.error(`${functionName} : Response Is Not OK`, response);
+    throw new Error(`${functionName} : Response Is Not OK`);
+  }
+  const json = await response.json();
+  if(json.error) {
+    console.error(`${functionName} : Response Has Error`, response, json);
+    throw new Error(`${functionName} : Response Has Error`);
+  }
+  const result = json.result;
+  if(result == null) {
+    console.error(`${functionName} : Response Does Not Have Result`, response, json);
+    throw new Error(`${functionName} : Response Does Not Have Result`);
+  }
+  console.log(`${functionName} : Succeeded`, response, json, result);
+  return result;
+}
+
+</script>
+
+  </body>
+</html>
