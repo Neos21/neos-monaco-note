@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
-    <title>Neo's Monaco Note (LocalStorage Version)</title>
+    <title>Neo's Monaco Note</title>
     <link rel="icon" href="/favicon.ico">
     <style>
 
@@ -65,8 +65,7 @@ body {
   height: 0;
 }
 
-.controls > .commands,
-.controls > .languages {
+.controls > .commands {
   display: flex;
   column-gap: var(--controls-padding-vertical);
 }
@@ -84,7 +83,8 @@ body {
   opacity: 1;
 }
 
-.controls button {
+.controls button,
+.controls input {
   height: 100%;
   outline: 0;
   border: 1px solid transparent;
@@ -94,6 +94,9 @@ body {
   font-size: 16px;  /* For iOS Prevent Zoom */
   font-family: inherit;
   background: #444;
+}
+
+.controls button {
   cursor: pointer;
 }
 
@@ -113,6 +116,14 @@ body {
   background: #111;
 }
 
+#credential {
+  width: 8rem;
+}
+
+#credential::placeholder {
+  color: #777;
+}
+
 #container {
   height: calc(100vh - var(--controls-height));
 }
@@ -124,15 +135,12 @@ body {
 <div class="controls">
   <div class="commands">
     <span id="editing-marker">●</span>
+    <button type="button" id="load" accesskey="l" disabled>Load</button>
     <button type="button" id="save" accesskey="s" disabled>Save</button>
     <button type="button" id="wrap" accesskey="w">Wrap (-)</button>
   </div>
-  <div class="languages">
-    <button type="button" id="language-markdown"   class="language-button" accesskey="m">MD</button>
-    <button type="button" id="language-html"       class="language-button" accesskey="h">HTML</button>
-    <button type="button" id="language-scss"       class="language-button" accesskey="c">CSS</button>
-    <button type="button" id="language-typescript" class="language-button" accesskey="j">JS</button>
-    <button type="button" id="language-shell"      class="language-button" accesskey="e">Bash (e)</button>
+  <div class="credential">
+    <input type="password" id="credential" value="" placeholder="Credential (p)" accesskey="p">
   </div>
 </div>
 <div id="container"></div>
@@ -144,6 +152,7 @@ require.config({
   paths: {
     vs: './min/vs'
   },
+  // https://qiita.com/lumis/items/311b8c39d61312957195
   'vs/nls': {
     availableLanguages: {
       '*': 'ja'
@@ -155,42 +164,71 @@ require(['vs/editor/editor.main'], async () => {
   // Create Editor
   setupTheme();
   let isWordWrap = false;
-  const defaultLanguageName = 'markdown';
-  const editor = createEditor(isWordWrap, defaultLanguageName);
-  const editorModel = editor.getModel();
-  setupLanguageButtons(editorModel, defaultLanguageName);
+  const editor = createEditor(isWordWrap);
   
-  const editingMarker   = document.getElementById('editing-marker');
-  const saveButton      = document.getElementById('save');
-  const languageButtons = document.querySelectorAll('.language-button');
+  const editingMarker     = document.getElementById('editing-marker');
+  const loadButton        = document.getElementById('load');
+  const saveButton        = document.getElementById('save');
+  const credentialTextBox = document.getElementById('credential');
   
   // Init
-  const content = getStorageItem('content');
-  if(content == null) {
+  const savedCredential = localStorage.getItem('credential');
+  let isFirstLoaded = false;
+  if(savedCredential == null || savedCredential === '') {
+    editor.setValue('First Time. Please Load First');
+    loadButton.disabled = false;
+    credentialTextBox.focus();
     console.log('Init : First Time');
   }
   else {
-    // Load Content
-    editor.setValue(content);
-    // Update Language
-    const selectedLanguageName = getStorageItem('selected-language-name');
-    const targetLanguageButton = [...languageButtons].find(languageButton => languageButton.id.replace('language-', '') === selectedLanguageName);
-    if(selectedLanguageName == null || targetLanguageButton == null) {
-      console.warn('Selected Language Name Is Invalid. Set Default Language Name :', defaultLanguageName);
-      try {
-        localStorage.setItem('selected-language-name', defaultLanguageName);
-      }
-      catch(error) {
-        console.warn('Failed To Set Item : Maybe The Browser Does Not Support LocalStorage. Ignore Error', error);
-      }
+    try {
+      // Auto Load
+      const content = await loadContent(savedCredential);
+      editor.setValue(content);
+      isFirstLoaded = true;
+      
+      credentialTextBox.value = savedCredential;
+      console.log('Init : Auto Loaded');
     }
-    else {
-      monaco.editor.setModelLanguage(editorModel, selectedLanguageName);
-      languageButtons.forEach(languageButton => languageButton.disabled = false);
-      targetLanguageButton.disabled = true;
+    catch(error) {
+      console.error('Init : Failed To Auto Load', error);
+      editor.setValue('Failed To Auto Load. Please Input Credential And Load First');
+      loadButton.disabled = false;
+      credentialTextBox.focus();
+      localStorage.removeItem('credential');
+      console.warn('Init : Failed To Auto Load');
     }
-    console.log('Init : Loaded');
   }
+  
+  // Load Button
+  loadButton.addEventListener('click', async () => {
+    try {
+      loadButton.disabled = true;
+      
+      const credential = credentialTextBox.value;
+      if(credential.trim() === '') {
+        loadButton.disabled = false;
+        credentialTextBox.focus();
+        return alert('Please Input Credential');
+      }
+      
+      const content = await loadContent(credential);
+      editor.setValue(content);
+      isFirstLoaded = true;
+      
+      isEditted = false;
+      editingMarker.classList.remove('editing');
+      localStorage.setItem('credential', credential);
+      console.log('Load : Succeeded');
+    }
+    catch(error) {
+      console.error('Load : Failed To Load', error);
+      alert('Failed To Load. Please Input Credential And Load First');
+      loadButton.disabled = false;
+      credentialTextBox.focus();
+      console.warn('Load : Failed');
+    }
+  });
   
   // Editing Marker
   let isEditted = false;
@@ -199,33 +237,39 @@ require(['vs/editor/editor.main'], async () => {
     event.returnValue = 'Do You Want To Leave This Page?';
     return 'Do You Want To Leave This Page?';
   });
-  editorModel.onDidChangeContent(_event => {
+  editor.getModel().onDidChangeContent(_event => {
     if(isEditted) return;
     isEditted = true;
     editingMarker.classList.add('editing');
-    saveButton.disabled = false;
+    if(isFirstLoaded) saveButton.disabled = false;
   });
   
   // Save Button
-  saveButton.addEventListener('click', () => {
+  saveButton.addEventListener('click', async () => {
     try {
       saveButton.disabled = true;
-      // Save Content
+      
+      const credential = credentialTextBox.value;
+      if(credential.trim() === '') {
+        saveButton.disabled = false;
+        credentialTextBox.focus();
+        return alert('Please Input Credential');
+      }
+      
       const content = editor.getValue();
-      localStorage.setItem('content', content);  // Throws
-      // Detect Selected Language
-      const targetLanguageButton = [...languageButtons].find(languageButton => languageButton.disabled);
-      const selectedLanguageName = targetLanguageButton.id.replace('language-', '');
-      localStorage.setItem('selected-language-name', selectedLanguageName);  // Throws
+      const _result = await saveContent(credential, content);
       
       isEditted = false;
       editingMarker.classList.remove('editing');
+      localStorage.setItem('credential', credential);
       console.log('Save : Succeeded');
     }
     catch(error) {
       console.error('Save : Failed To Save', error);
-      alert('Failed To Save. Maybe The Browser Does Not Support LocalStorage');
+      alert('Failed To Save. Please Check Credential');
       saveButton.disabled = false;
+      credentialTextBox.focus();
+      console.warn('Save : Failed');
     }
   });
   // Ctrl + S : Save
@@ -259,10 +303,16 @@ require(['vs/editor/editor.main'], async () => {
       wrapButton.click();
     }
   });
+  
+  //console.log('Languages', monaco.languages.getLanguages());
+  //console.log('Themes', editor._themeService._knownThemes);
+  //monaco.editor.setModelLanguage(editor.getModel(), 'typescript');  //  https://stackoverflow.com/questions/56840298/how-to-change-display-language-on-monaco-editor
 });
 
 /** Setup Monokai Theme */
 function setupTheme() {
+  // https://microsoft.github.io/monaco-editor/playground.html#customizing-the-appearence-exposed-colors
+  // https://github.com/brijeshb42/monaco-themes/blob/master/themes/Monokai.json
   monaco.editor.defineTheme('monokai', {
     base: 'vs-dark',
     inherit: true,
@@ -317,16 +367,16 @@ function setupTheme() {
  * Create Monaco Editor
  * 
  * @param {boolean} isWordWrap Is Word Wrap Setting
- * @param {string} defaultLanguageName Default Language Name
  * @return {IStandaloneCodeEditor} Monaco Editor
  */
-function createEditor(isWordWrap, defaultLanguageName) {
+function createEditor(isWordWrap) {
   return monaco.editor.create(document.getElementById('container'), {
+    // https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.IStandaloneEditorConstructionOptions.html
     automaticLayout: true,
-    value: `# Neo's Monaco Note (LocalStorage Version)\n\n- [Neo's World](https://neos21.net/)\n- [GitHub - neos-monaco-note](https://github.com/Neos21/neos-monaco-note)\n- [GitHub Pages - neos-monaco-note : Neo's Monaco Note](https://neos21.github.io/neos-monaco-note)`,  // For Demo
+    value: '',
     fontFamily: '"Noto Sans Mono CJK JP", MeiryoKe_Gothic',
     fontSize: 16,
-    language: defaultLanguageName,
+    language: 'markdown',
     minimap: { enabled: false },
     renderIndentGuides: true,
     renderWhitespace: 'all',
@@ -340,38 +390,58 @@ function createEditor(isWordWrap, defaultLanguageName) {
 }
 
 /**
- * Setup Language Buttons
+ * Call Load Content API
  * 
- * @param {ITextModel} editorModel Editor Model
- * @param {string} defaultLanguageName Default Language Name
+ * @param {string} credential Credential
+ * @return {Promise<string>} Content
+ * @throws Failed To Call API, Invalid Response
  */
-function setupLanguageButtons(editorModel, defaultLanguageName) {
-  const languageButtons = document.querySelectorAll('.language-button');
-  languageButtons.forEach(targetLanguageButton => {
-    const languageName = targetLanguageButton.id.replace('language-', '');
-    targetLanguageButton.addEventListener('click', () => {
-      monaco.editor.setModelLanguage(editorModel, languageName);
-      languageButtons.forEach(languageButton => languageButton.disabled = false);
-      targetLanguageButton.disabled = true;
-    });
-    targetLanguageButton.disabled = defaultLanguageName === languageName;
-  });
+async function loadContent(credential) {
+  const response = await fetch(`./nmn-load.js.cgi?credential=${credential}`);
+  return await parseResponse(response, 'Load Content');
 }
 
 /**
- * Get Item From LocalStorage
+ * Call Save Content API
  * 
- * @param {string} key Key
- * @return {string|null} Value Or `null` If LocalStorage Was Not Supported
+ * @param {string} credential Credential
+ * @param {string} content Content
+ * @return {Promise<Object>} Succeeded Response Object
+ * @throws Failed To Call API, Invalid Response
  */
-function getStorageItem(key) {
-  try {
-    return localStorage.getItem(key);
+async function saveContent(credential, content) {
+  const response = await fetch(`./nmn-save.js.cgi`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential, content })
+  });
+  return await parseResponse(response, 'Save Content');
+}
+
+/**
+ * Parse Response
+ * 
+ * @param {Response} response Response
+ * @param {string} functionName Function Name
+ * @return {Promise<*>} Response Result Data
+ */
+async function parseResponse(response, functionName = 'Parse Response') {
+  if(!response.ok) {
+    console.error(`${functionName} : Response Is Not OK`, response);
+    throw new Error(`${functionName} : Response Is Not OK`);
   }
-  catch(error) {
-    console.warn('Failed To Get Storage Item : Maybe The Browser Does Not Support LocalStorage. Return null', error);
-    return null;
+  const json = await response.json();
+  if(json.error) {
+    console.error(`${functionName} : Response Has Error`, response, json);
+    throw new Error(`${functionName} : Response Has Error`);
   }
+  const result = json.result;
+  if(result == null) {
+    console.error(`${functionName} : Response Does Not Have Result`, response, json);
+    throw new Error(`${functionName} : Response Does Not Have Result`);
+  }
+  console.log(`${functionName} : Succeeded`, response, json, result);
+  return result;
 }
 
 </script>

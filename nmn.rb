@@ -20,7 +20,7 @@ PRIVATE_DIRECTORY_PATH = '/PATH/TO/private'
 # Credential File Path
 CREDENTIAL_FILE_PATH = "#{PRIVATE_DIRECTORY_PATH}/credential.txt"
 # Monaco Note File Path
-MONACO_NOTE_FILE_PATH = "#{PRIVATE_DIRECTORY_PATH}/neos-monaco-note/index.html"
+MONACO_NOTE_FILE_PATH = "#{PRIVATE_DIRECTORY_PATH}/neos-monaco-note/nmn.html"
 
 
 # Global Variables
